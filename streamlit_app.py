@@ -1,27 +1,18 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import time
-import threading
-import queue
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 import io
 import base64
 import requests
 import urllib3
 import tempfile
-import cv2
 from moviepy.editor import VideoFileClip
 
 # SSL 경고 억제
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# OpenCV 사용 가능 여부 (업로드 영상 분석용)
-OPENCV_AVAILABLE = True
-MODULES_AVAILABLE = False
 
 st.set_page_config(
     page_title="CCTV 비정상주행 감지 시스템",
