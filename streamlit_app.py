@@ -78,6 +78,13 @@ def setup_sidebar():
         "모니터링 카메라 선택",
         list(camera_options.keys())
     )
+
+    uploaded_video = None
+    if selected_camera == "영상 파일 업로드":
+        uploaded_video = st.sidebar.file_uploader(
+            "분석할 CCTV 영상 파일을 업로드하세요 (mp4, avi 등)",
+            type=["mp4", "avi", "mov", "mkv"]
+        )
     
     # 위험도 임계값 설정
     risk_threshold = st.sidebar.slider(
@@ -125,7 +132,9 @@ def setup_sidebar():
         'stop': stop_monitoring,
         'demo_mode': not OPENCV_AVAILABLE or selected_camera == "데모 모드",
         'webcam_mode': selected_camera == "웹캠 연결",
-        'cctv_mode': selected_camera == "실제 CCTV 스트림"
+        'cctv_mode': selected_camera == "실제 CCTV 스트림",
+        'video_upload_mode': selected_camera == "영상 파일 업로드",
+        'uploaded_video': uploaded_video
     }
 
 def setup_main_dashboard():
@@ -210,6 +219,8 @@ def run_monitoring(config, placeholders):
             run_cctv_stream_mode(placeholders, config)
         elif config['webcam_mode']:
             run_webcam_mode(placeholders, config)
+        elif config['video_upload_mode']:
+            run_uploaded_video_mode(placeholders, config)
         else:
             run_demo_mode(placeholders, config)
     
@@ -324,6 +335,37 @@ def run_webcam_mode(placeholders, config):
     """웹캠 모드 실행 (PIL 기반)"""
     st.error("웹캠은 Streamlit Cloud 환경에서 사용할 수 없습니다. 데모 모드로 전환합니다.")
     run_demo_mode(placeholders, config)
+
+def run_uploaded_video_mode(placeholders, config):
+    uploaded_video = config.get('uploaded_video')
+    if uploaded_video is None:
+        st.warning("분석할 영상을 업로드해주세요.")
+        return
+
+    import tempfile
+    import cv2
+    import numpy as np
+
+    # 임시 파일로 저장
+    tfile = tempfile.NamedTemporaryFile(delete=False)
+    tfile.write(uploaded_video.read())
+    tfile.close()
+
+    cap = cv2.VideoCapture(tfile.name)
+    video_placeholder = placeholders['video']
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        # 프레임 분석 및 시각화 (예시)
+        frame = cv2.resize(frame, (640, 480))
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        video_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
+        # 분석 결과 업데이트 등 추가 가능
+        # time.sleep(0.03)  # 프레임 속도 조절
+
+    cap.release()
 
 def calculate_simple_risk_score_pil(image):
     """간단한 위험도 계산 (PIL 기반)"""
