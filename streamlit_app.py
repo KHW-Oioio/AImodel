@@ -10,6 +10,8 @@ import queue
 from PIL import Image, ImageDraw, ImageFont
 import io
 import base64
+import requests
+import cv2
 
 # OpenCV import 오류 처리
 try:
@@ -40,6 +42,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# CCTV 스트림 URL
+CCTV_STREAM_URL = "https://www.utic.go.kr/jsp/map/cctvStream.jsp?cctvid=E970104&cctvname=%25EB%25B0%2598%25ED%258F%25AC%25EB%258C%2580%25EA%25B5%2590%25EB%25B6%2581%25EB%258B%25A81&kind=EC&cctvip=undefined&cctvch=53&id=428&cctvpasswd=undefined&cctvport=undefined&minX=126.94439014863138&minY=37.48157205124353&maxX=127.16458223998221&maxY=37.56413189592257"
 
 def main():
     st.title("🚗 CCTV 비정상주행 감지 시스템")
@@ -74,6 +79,7 @@ def setup_sidebar():
     
     # 카메라 선택
     camera_options = {
+        "실제 CCTV 스트림": "cctv_stream",
         "웹캠 연결": "webcam",
         "데모 모드": "demo",
         "카메라 1": 0,
@@ -132,7 +138,8 @@ def setup_sidebar():
         'start': start_monitoring,
         'stop': stop_monitoring,
         'demo_mode': not OPENCV_AVAILABLE or selected_camera == "데모 모드",
-        'webcam_mode': selected_camera == "웹캠 연결"
+        'webcam_mode': selected_camera == "웹캠 연결",
+        'cctv_mode': selected_camera == "실제 CCTV 스트림"
     }
 
 def setup_main_dashboard():
@@ -212,8 +219,10 @@ def run_monitoring(config, placeholders):
         st.session_state.monitoring_active = True
         st.success("모니터링이 시작되었습니다!")
         
-        # 웹캠 모드 또는 데모 모드 실행
-        if config['webcam_mode'] and OPENCV_AVAILABLE:
+        # CCTV 스트림 모드 실행
+        if config['cctv_mode'] and OPENCV_AVAILABLE:
+            run_cctv_stream_mode(placeholders, config)
+        elif config['webcam_mode'] and OPENCV_AVAILABLE:
             run_webcam_mode(placeholders, config)
         else:
             run_demo_mode(placeholders, config)
@@ -221,6 +230,74 @@ def run_monitoring(config, placeholders):
     elif config['stop'] and st.session_state.monitoring_active:
         st.session_state.monitoring_active = False
         st.warning("모니터링이 정지되었습니다!")
+
+def run_cctv_stream_mode(placeholders, config):
+    """CCTV 스트림 모드 실행"""
+    if not OPENCV_AVAILABLE:
+        st.error("OpenCV가 설치되지 않아 CCTV 스트림을 사용할 수 없습니다.")
+        return
+    
+    st.info("🔄 CCTV 스트림에 연결 중...")
+    
+    try:
+        # CCTV 스트림 연결 시도
+        cap = cv2.VideoCapture(CCTV_STREAM_URL)
+        
+        if not cap.isOpened():
+            st.error("CCTV 스트림에 연결할 수 없습니다. 데모 모드로 전환합니다.")
+            run_demo_mode(placeholders, config)
+            return
+        
+        st.success("✅ CCTV 스트림에 연결되었습니다!")
+        
+        # 실시간 스트리밍
+        video_placeholder = placeholders['video']
+        
+        # 위험도 계산을 위한 변수
+        risk_score = 0.0
+        frame_count = 0
+        
+        while st.session_state.monitoring_active:
+            ret, frame = cap.read()
+            
+            if not ret:
+                st.warning("CCTV 스트림에서 프레임을 읽을 수 없습니다. 재연결 시도 중...")
+                time.sleep(2)
+                continue
+            
+            # 프레임 처리
+            frame = cv2.resize(frame, (640, 480))
+            
+            # 위험도 계산 (실제 구현에서는 AI 모델 사용)
+            risk_score = calculate_simple_risk_score(frame)
+            
+            # 위험도 시각화
+            frame_with_risk = visualize_risk_on_frame(frame, risk_score)
+            
+            # BGR을 RGB로 변환
+            frame_rgb = cv2.cvtColor(frame_with_risk, cv2.COLOR_BGR2RGB)
+            
+            # Streamlit에 표시
+            video_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
+            
+            # 알림 업데이트
+            update_alerts(placeholders, risk_score)
+            
+            # 차트 업데이트 (프레임마다 업데이트하지 않고 주기적으로)
+            frame_count += 1
+            if frame_count % 30 == 0:  # 30프레임마다 차트 업데이트
+                update_charts(placeholders, risk_score)
+            
+            # 잠시 대기 (프레임 레이트 조절)
+            time.sleep(0.1)
+        
+        # 스트림 해제
+        cap.release()
+        
+    except Exception as e:
+        st.error(f"CCTV 스트림 연결 중 오류가 발생했습니다: {e}")
+        st.info("데모 모드로 전환합니다.")
+        run_demo_mode(placeholders, config)
 
 def run_webcam_mode(placeholders, config):
     """웹캠 모드 실행"""
@@ -306,10 +383,14 @@ def visualize_risk_on_frame(frame, risk_score):
     cv2.putText(frame, f"위험도: {level} ({risk_score:.2f})", 
                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
     
+    # CCTV 스트림 정보 표시
+    cv2.putText(frame, "실시간 CCTV 스트림", 
+               (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
     # 긴급 경고 프레임 추가
     if risk_score > 0.8:
         cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 255), 5)
-        cv2.putText(frame, "긴급 경고!", (10, 70), 
+        cv2.putText(frame, "긴급 경고!", (10, 90), 
                    cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
     
     return frame
