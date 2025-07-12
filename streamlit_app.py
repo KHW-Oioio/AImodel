@@ -30,8 +30,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CCTV 스트림 URL
+# CCTV 스트림 URL (실제 이미지 스트림이 아닐 수 있음)
 CCTV_STREAM_URL = "https://www.utic.go.kr/jsp/map/cctvStream.jsp?cctvid=E970102&cctvname=%25EB%25B0%2598%25ED%258F%25AC%25EB%258C%2580%25EA%25B5%2590~%25ED%2595%259C%25EB%2582%25A83&kind=EC&cctvip=undefined&cctvch=53&id=460&cctvpasswd=undefined&cctvport=undefined&minX=126.94439014863138&minY=37.48157205124353&maxX=127.16458223998221&maxY=37.56413189592257"
+
+# 대안 CCTV URL들 (테스트용)
+ALTERNATIVE_CCTV_URLS = [
+    "https://www.utic.go.kr/jsp/map/cctvStream.jsp?cctvid=E970104&cctvname=%25EB%25B0%2598%25ED%258F%25AC%25EB%258C%2580%25EA%25B5%2590%25EB%25B6%2581%25EB%258B%25A81&kind=EC&cctvip=undefined&cctvch=53&id=428&cctvpasswd=undefined&cctvport=undefined&minX=126.94439014863138&minY=37.48157205124353&maxX=127.16458223998221&maxY=37.56413189592257",
+    "https://www.utic.go.kr/jsp/map/cctvStream.jsp?cctvid=E970103&cctvname=%25EB%25B0%2598%25ED%258F%25AC%25EB%258C%2580%25EA%25B5%2590%25EB%25B6%2581%25EB%258B%25A82&kind=EC&cctvip=undefined&cctvch=53&id=429&cctvpasswd=undefined&cctvport=undefined&minX=126.94439014863138&minY=37.48157205124353&maxX=127.16458223998221&maxY=37.56413189592257"
+]
 
 def main():
     st.title("🚗 CCTV 비정상주행 감지 시스템")
@@ -214,30 +220,65 @@ def run_cctv_stream_mode(placeholders, config):
     """CCTV 스트림 모드 실행 (PIL 기반)"""
     st.info("🔄 CCTV 스트림에 연결 중...")
     
-    try:
-        # SSL 검증 비활성화로 CCTV 스트림에서 이미지 가져오기 시도
-        response = requests.get(CCTV_STREAM_URL, timeout=10, verify=False)
-        
-        if response.status_code != 200:
-            st.error("CCTV 스트림에 연결할 수 없습니다. 데모 모드로 전환합니다.")
-            run_demo_mode(placeholders, config)
-            return
-        
-        st.success("✅ CCTV 스트림에 연결되었습니다!")
-        
-        # 실시간 스트리밍 시뮬레이션
-        video_placeholder = placeholders['video']
-        
-        # 위험도 계산을 위한 변수
-        risk_score = 0.0
-        frame_count = 0
-        
-        while st.session_state.monitoring_active:
-            try:
-                # SSL 검증 비활성화로 CCTV 스트림에서 이미지 가져오기
-                response = requests.get(CCTV_STREAM_URL, timeout=10, verify=False)
+    # 사용할 CCTV URL 결정
+    cctv_urls = [CCTV_STREAM_URL] + ALTERNATIVE_CCTV_URLS
+    working_url = None
+    
+    # 여러 CCTV URL 시도
+    for url in cctv_urls:
+        try:
+            st.info(f"🔄 CCTV URL 시도 중: {url[:50]}...")
+            response = requests.get(url, timeout=10, verify=False)
+            
+            if response.status_code == 200:
+                content_type = response.headers.get('content-type', '')
                 
-                if response.status_code == 200:
+                # 이미지 파일인지 확인
+                if ('image' in content_type or 
+                    response.content.startswith(b'\xff\xd8\xff') or  # JPEG
+                    response.content.startswith(b'\x89PNG') or       # PNG
+                    response.content.startswith(b'GIF8')):           # GIF
+                    
+                    try:
+                        # 이미지 데이터를 PIL Image로 변환
+                        image = Image.open(io.BytesIO(response.content))
+                        image.verify()  # 이미지 유효성 검사
+                        working_url = url
+                        st.success(f"✅ CCTV 스트림에 연결되었습니다! (Content-Type: {content_type})")
+                        break
+                    except Exception as img_error:
+                        st.warning(f"이미지 형식이지만 처리할 수 없습니다: {img_error}")
+                        continue
+                else:
+                    st.warning(f"이미지 형식이 아닙니다. Content-Type: {content_type}")
+                    continue
+            else:
+                st.warning(f"HTTP {response.status_code}: {url[:50]}...")
+                continue
+                
+        except Exception as e:
+            st.warning(f"CCTV URL 연결 실패: {e}")
+            continue
+    
+    if working_url is None:
+        st.error("모든 CCTV URL 연결에 실패했습니다. 데모 모드로 전환합니다.")
+        run_demo_mode(placeholders, config)
+        return
+    
+    # 실시간 스트리밍 시뮬레이션
+    video_placeholder = placeholders['video']
+    
+    # 위험도 계산을 위한 변수
+    risk_score = 0.0
+    frame_count = 0
+    
+    while st.session_state.monitoring_active:
+        try:
+            # SSL 검증 비활성화로 CCTV 스트림에서 이미지 가져오기
+            response = requests.get(working_url, timeout=10, verify=False)
+            
+            if response.status_code == 200:
+                try:
                     # 이미지 데이터를 PIL Image로 변환
                     image = Image.open(io.BytesIO(response.content))
                     image = image.resize((640, 480))
@@ -250,32 +291,33 @@ def run_cctv_stream_mode(placeholders, config):
                     
                     # Streamlit에 표시
                     video_placeholder.image(frame_with_risk, use_column_width=True)
-                else:
-                    # 연결 실패 시 데모 프레임 생성
+                except Exception as img_error:
+                    st.warning(f"이미지 처리 오류: {img_error}")
+                    # 데모 프레임 생성
                     risk_score = calculate_simple_risk_score_pil(None)
                     demo_frame = create_demo_frame_pil(risk_score)
                     video_placeholder.image(demo_frame, use_column_width=True)
-                
-                # 알림 업데이트
-                update_alerts(placeholders, risk_score)
-                
-                # 차트 업데이트 (프레임마다 업데이트하지 않고 주기적으로)
-                frame_count += 1
-                if frame_count % 30 == 0:  # 30프레임마다 차트 업데이트
-                    update_charts(placeholders, risk_score)
-                
-                # 잠시 대기 (프레임 레이트 조절)
-                time.sleep(0.1)
-                
-            except Exception as e:
-                st.warning(f"CCTV 스트림에서 프레임을 읽을 수 없습니다: {e}")
-                time.sleep(2)
-                continue
-        
-    except Exception as e:
-        st.error(f"CCTV 스트림 연결 중 오류가 발생했습니다: {e}")
-        st.info("데모 모드로 전환합니다.")
-        run_demo_mode(placeholders, config)
+            else:
+                # 연결 실패 시 데모 프레임 생성
+                risk_score = calculate_simple_risk_score_pil(None)
+                demo_frame = create_demo_frame_pil(risk_score)
+                video_placeholder.image(demo_frame, use_column_width=True)
+            
+            # 알림 업데이트
+            update_alerts(placeholders, risk_score)
+            
+            # 차트 업데이트 (프레임마다 업데이트하지 않고 주기적으로)
+            frame_count += 1
+            if frame_count % 30 == 0:  # 30프레임마다 차트 업데이트
+                update_charts(placeholders, risk_score)
+            
+            # 잠시 대기 (프레임 레이트 조절)
+            time.sleep(0.1)
+            
+        except Exception as e:
+            st.warning(f"CCTV 스트림에서 프레임을 읽을 수 없습니다: {e}")
+            time.sleep(2)
+            continue
 
 def run_webcam_mode(placeholders, config):
     """웹캠 모드 실행 (PIL 기반)"""
