@@ -11,6 +11,10 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import base64
 import requests
+import urllib3
+
+# SSL 경고 억제
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # OpenCV 사용 불가 - Streamlit Cloud 환경에서는 OpenCV 설치 문제로 PIL 기반으로만 동작
 OPENCV_AVAILABLE = False
@@ -211,8 +215,8 @@ def run_cctv_stream_mode(placeholders, config):
     st.info("🔄 CCTV 스트림에 연결 중...")
     
     try:
-        # CCTV 스트림에서 이미지 가져오기 시도
-        response = requests.get(CCTV_STREAM_URL, timeout=5)
+        # SSL 검증 비활성화로 CCTV 스트림에서 이미지 가져오기 시도
+        response = requests.get(CCTV_STREAM_URL, timeout=10, verify=False)
         
         if response.status_code != 200:
             st.error("CCTV 스트림에 연결할 수 없습니다. 데모 모드로 전환합니다.")
@@ -230,8 +234,8 @@ def run_cctv_stream_mode(placeholders, config):
         
         while st.session_state.monitoring_active:
             try:
-                # CCTV 스트림에서 이미지 가져오기
-                response = requests.get(CCTV_STREAM_URL, timeout=5)
+                # SSL 검증 비활성화로 CCTV 스트림에서 이미지 가져오기
+                response = requests.get(CCTV_STREAM_URL, timeout=10, verify=False)
                 
                 if response.status_code == 200:
                     # 이미지 데이터를 PIL Image로 변환
