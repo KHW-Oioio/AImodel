@@ -14,6 +14,7 @@ import requests
 import urllib3
 import tempfile
 import cv2
+from moviepy.editor import VideoFileClip
 
 # SSL 경고 억제
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -36,14 +37,14 @@ ALTERNATIVE_CCTV_URLS = []
 def main():
     st.title("🚗 CCTV 비정상주행 감지 시스템")
     st.markdown("---")
-    st.info("ℹ️ PIL 기반 + OpenCV 업로드 분석 모드 지원 (Streamlit Cloud 환경)")
+    st.info("ℹ️ moviepy 기반 프레임 추출 모드 (Streamlit Cloud 환경)")
     config = setup_sidebar()
     placeholders = setup_main_dashboard()
     run_monitoring(config, placeholders)
 
 def setup_sidebar():
     st.sidebar.title("🚗 모니터링 설정")
-    st.sidebar.info("ℹ️ PIL 기반 모드 + 영상 업로드 지원")
+    st.sidebar.info("ℹ️ moviepy 기반 프레임 추출 모드")
     camera_options = {
         "실제 CCTV 스트림": "cctv_stream",
         "영상 파일 업로드": "video_upload",
@@ -116,7 +117,7 @@ def setup_main_dashboard():
     with col3:
         st.metric(label="위험 이벤트", value="0", delta="0")
     with col4:
-        st.metric(label="시스템 상태", value="PIL/업로드 모드", delta="")
+        st.metric(label="시스템 상태", value="moviepy/프레임 모드", delta="")
     col1, col2 = st.columns([2, 1])
     with col1:
         st.subheader("📹 실시간 CCTV 영상")
@@ -167,21 +168,14 @@ def run_uploaded_video_mode(placeholders, config):
     tfile = tempfile.NamedTemporaryFile(delete=False)
     tfile.write(uploaded_video.read())
     tfile.close()
-    cap = cv2.VideoCapture(tfile.name)
-    video_placeholder = placeholders['video']
-    frame_count = 0
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frame = cv2.resize(frame, (640, 480))
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        video_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
-        frame_count += 1
-        if frame_count > 300:
-            break
-        time.sleep(0.03)
-    cap.release()
+    clip = VideoFileClip(tfile.name)
+    duration = int(clip.duration)
+    st.write(f"영상 길이: {duration}초")
+    sec = st.slider("프레임 위치(초)", 0, max(duration-1, 0), 0)
+    frame = clip.get_frame(sec)
+    frame_img = Image.fromarray(frame)
+    placeholders['video'].image(frame_img, use_column_width=True)
+    st.info("슬라이더로 원하는 시점의 프레임을 확인할 수 있습니다.")
 
 def run_cctv_stream_mode(placeholders, config):
     st.info("🔄 CCTV 스트림에 연결 중...")
