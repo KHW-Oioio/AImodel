@@ -7,8 +7,9 @@ from datetime import datetime, timedelta
 import time
 import threading
 import queue
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import io
+import base64
 
 # OpenCV import 오류 처리
 try:
@@ -73,6 +74,7 @@ def setup_sidebar():
     
     # 카메라 선택
     camera_options = {
+        "웹캠 연결": "webcam",
         "데모 모드": "demo",
         "카메라 1": 0,
         "카메라 2": 1,
@@ -129,7 +131,8 @@ def setup_sidebar():
         },
         'start': start_monitoring,
         'stop': stop_monitoring,
-        'demo_mode': not OPENCV_AVAILABLE or selected_camera == "데모 모드"
+        'demo_mode': not OPENCV_AVAILABLE or selected_camera == "데모 모드",
+        'webcam_mode': selected_camera == "웹캠 연결"
     }
 
 def setup_main_dashboard():
@@ -209,12 +212,155 @@ def run_monitoring(config, placeholders):
         st.session_state.monitoring_active = True
         st.success("모니터링이 시작되었습니다!")
         
-        # 데모 모드 실행
-        run_demo_mode(placeholders, config)
+        # 웹캠 모드 또는 데모 모드 실행
+        if config['webcam_mode'] and OPENCV_AVAILABLE:
+            run_webcam_mode(placeholders, config)
+        else:
+            run_demo_mode(placeholders, config)
     
     elif config['stop'] and st.session_state.monitoring_active:
         st.session_state.monitoring_active = False
         st.warning("모니터링이 정지되었습니다!")
+
+def run_webcam_mode(placeholders, config):
+    """웹캠 모드 실행"""
+    if not OPENCV_AVAILABLE:
+        st.error("OpenCV가 설치되지 않아 웹캠을 사용할 수 없습니다.")
+        return
+    
+    # 웹캠 연결
+    cap = cv2.VideoCapture(0)
+    
+    if not cap.isOpened():
+        st.error("웹캠을 열 수 없습니다. 데모 모드로 전환합니다.")
+        run_demo_mode(placeholders, config)
+        return
+    
+    # 웹캠 설정
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    
+    # 실시간 스트리밍
+    video_placeholder = placeholders['video']
+    
+    # 위험도 계산을 위한 변수
+    risk_score = 0.0
+    
+    while st.session_state.monitoring_active:
+        ret, frame = cap.read()
+        
+        if not ret:
+            st.error("프레임을 읽을 수 없습니다.")
+            break
+        
+        # 프레임 처리
+        frame = cv2.resize(frame, (640, 480))
+        
+        # 위험도 계산 (실제 구현에서는 AI 모델 사용)
+        risk_score = calculate_simple_risk_score(frame)
+        
+        # 위험도 시각화
+        frame_with_risk = visualize_risk_on_frame(frame, risk_score)
+        
+        # BGR을 RGB로 변환
+        frame_rgb = cv2.cvtColor(frame_with_risk, cv2.COLOR_BGR2RGB)
+        
+        # Streamlit에 표시
+        video_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
+        
+        # 알림 업데이트
+        update_alerts(placeholders, risk_score)
+        
+        # 차트 업데이트
+        update_charts(placeholders, risk_score)
+        
+        # 잠시 대기 (프레임 레이트 조절)
+        time.sleep(0.1)
+    
+    # 웹캠 해제
+    cap.release()
+
+def calculate_simple_risk_score(frame):
+    """간단한 위험도 계산 (실제로는 AI 모델 사용)"""
+    import random
+    # 실제 구현에서는 프레임 분석을 통한 위험도 계산
+    # 여기서는 데모용으로 랜덤 값 사용
+    return random.uniform(0.0, 1.0)
+
+def visualize_risk_on_frame(frame, risk_score):
+    """프레임에 위험도 정보 시각화"""
+    if risk_score < 0.3:
+        color = (0, 255, 0)  # 녹색
+        level = "안전"
+    elif risk_score < 0.6:
+        color = (0, 255, 255)  # 노란색
+        level = "주의"
+    elif risk_score < 0.8:
+        color = (0, 165, 255)  # 주황색
+        level = "위험"
+    else:
+        color = (0, 0, 255)  # 빨간색
+        level = "매우 위험"
+    
+    # 위험도 정보 표시
+    cv2.putText(frame, f"위험도: {level} ({risk_score:.2f})", 
+               (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+    
+    # 긴급 경고 프레임 추가
+    if risk_score > 0.8:
+        cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 255), 5)
+        cv2.putText(frame, "긴급 경고!", (10, 70), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
+    
+    return frame
+
+def update_alerts(placeholders, risk_score):
+    """알림 업데이트"""
+    if risk_score > 0.8:
+        placeholders['alert'].error("🚨 긴급 위험 상황 감지!")
+    elif risk_score > 0.6:
+        placeholders['alert'].warning("⚠️ 위험 상황 감지")
+    elif risk_score > 0.3:
+        placeholders['alert'].info("ℹ️ 주의 상황 감지")
+    else:
+        placeholders['alert'].success("✅ 안전 상황")
+
+def update_charts(placeholders, risk_score):
+    """차트 업데이트"""
+    # 위험도 히스토리 저장
+    if 'risk_history' not in st.session_state:
+        st.session_state.risk_history = []
+    
+    st.session_state.risk_history.append({
+        'timestamp': datetime.now(),
+        'risk_score': risk_score
+    })
+    
+    # 최근 50개 데이터만 유지
+    if len(st.session_state.risk_history) > 50:
+        st.session_state.risk_history = st.session_state.risk_history[-50:]
+    
+    # 차트 생성
+    if len(st.session_state.risk_history) > 1:
+        df = pd.DataFrame(st.session_state.risk_history)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df['timestamp'],
+            y=df['risk_score'],
+            mode='lines+markers',
+            name='위험도',
+            line=dict(color='red', width=2)
+        ))
+        
+        fig.update_layout(
+            title="실시간 위험도 변화",
+            xaxis_title="시간",
+            yaxis_title="위험도",
+            height=300
+        )
+        
+        placeholders['chart'].plotly_chart(fig, use_container_width=True)
 
 def run_demo_mode(placeholders, config):
     """데모 모드 실행 (실제 카메라 없이 샘플 데이터 사용)"""
@@ -365,8 +511,6 @@ def create_demo_frame_pil(risk_score):
     img = Image.new('RGB', (640, 480), color='gray')
     
     # 텍스트 추가
-    from PIL import ImageDraw, ImageFont
-    
     draw = ImageDraw.Draw(img)
     
     # 위험도 정보 표시
