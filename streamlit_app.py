@@ -27,7 +27,7 @@ st.set_page_config(
 )
 
 # CCTV 스트림 URL
-CCTV_STREAM_URL = "https://www.utic.go.kr/jsp/map/cctvStream.jsp?cctvid=E970104&cctvname=%25EB%25B0%2598%25ED%258F%25AC%25EB%258C%2580%25EA%25B5%2590%25EB%25B6%2581%25EB%258B%25A81&kind=EC&cctvip=undefined&cctvch=53&id=428&cctvpasswd=undefined&cctvport=undefined&minX=126.94439014863138&minY=37.48157205124353&maxX=127.16458223998221&maxY=37.56413189592257"
+CCTV_STREAM_URL = "https://www.utic.go.kr/jsp/map/cctvStream.jsp?cctvid=E970102&cctvname=%25EB%25B0%2598%25ED%258F%25AC%25EB%258C%2580%25EA%25B5%2590~%25ED%2595%259C%25EB%2582%25A83&kind=EC&cctvip=undefined&cctvch=53&id=460&cctvpasswd=undefined&cctvport=undefined&minX=126.94439014863138&minY=37.48157205124353&maxX=127.16458223998221&maxY=37.56413189592257"
 
 def main():
     st.title("🚗 CCTV 비정상주행 감지 시스템")
