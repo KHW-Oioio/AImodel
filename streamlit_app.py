@@ -11,29 +11,12 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import base64
 import requests
-import cv2
 
-# OpenCV import 오류 처리
-try:
-    import cv2
-    OPENCV_AVAILABLE = True
-except ImportError:
-    st.warning("⚠️ OpenCV를 사용할 수 없습니다. 데모 모드로 실행됩니다.")
-    OPENCV_AVAILABLE = False
+# OpenCV 사용 불가 - Streamlit Cloud 환경에서는 OpenCV 설치 문제로 PIL 기반으로만 동작
+OPENCV_AVAILABLE = False
 
-# 커스텀 모듈 import (조건부)
-if OPENCV_AVAILABLE:
-    try:
-        from modules.risk_assessment import RealTimeRiskMonitor
-        from modules.alert_system import AlertSystem
-        from modules.data_logger import RiskDataLogger
-        from modules.video_processor import VideoProcessor
-        MODULES_AVAILABLE = True
-    except ImportError:
-        st.warning("⚠️ 일부 모듈을 불러올 수 없습니다. 데모 모드로 실행됩니다.")
-        MODULES_AVAILABLE = False
-else:
-    MODULES_AVAILABLE = False
+# 커스텀 모듈 import (현재는 사용하지 않음)
+MODULES_AVAILABLE = False
 
 # 페이지 설정
 st.set_page_config(
@@ -51,12 +34,7 @@ def main():
     st.markdown("---")
     
     # 시스템 상태 표시
-    if not OPENCV_AVAILABLE:
-        st.error("❌ OpenCV가 설치되지 않았습니다. 데모 모드로 실행됩니다.")
-    elif not MODULES_AVAILABLE:
-        st.warning("⚠️ 일부 모듈을 불러올 수 없습니다. 데모 모드로 실행됩니다.")
-    else:
-        st.success("✅ 모든 모듈이 정상적으로 로드되었습니다.")
+    st.info("ℹ️ PIL 기반 모드로 실행됩니다. (Streamlit Cloud 환경)")
     
     # 사이드바 설정
     config = setup_sidebar()
@@ -72,10 +50,7 @@ def setup_sidebar():
     st.sidebar.title("🚗 모니터링 설정")
     
     # 시스템 상태 표시
-    if not OPENCV_AVAILABLE:
-        st.sidebar.error("⚠️ 데모 모드")
-    else:
-        st.sidebar.success("✅ 정상 모드")
+    st.sidebar.info("ℹ️ PIL 기반 모드")
     
     # 카메라 선택
     camera_options = {
@@ -171,7 +146,7 @@ def setup_main_dashboard():
     with col4:
         st.metric(
             label="시스템 상태",
-            value="정상" if OPENCV_AVAILABLE else "데모",
+            value="PIL 모드",
             delta=""
         )
     
@@ -220,9 +195,9 @@ def run_monitoring(config, placeholders):
         st.success("모니터링이 시작되었습니다!")
         
         # CCTV 스트림 모드 실행
-        if config['cctv_mode'] and OPENCV_AVAILABLE:
+        if config['cctv_mode']:
             run_cctv_stream_mode(placeholders, config)
-        elif config['webcam_mode'] and OPENCV_AVAILABLE:
+        elif config['webcam_mode']:
             run_webcam_mode(placeholders, config)
         else:
             run_demo_mode(placeholders, config)
@@ -232,25 +207,21 @@ def run_monitoring(config, placeholders):
         st.warning("모니터링이 정지되었습니다!")
 
 def run_cctv_stream_mode(placeholders, config):
-    """CCTV 스트림 모드 실행"""
-    if not OPENCV_AVAILABLE:
-        st.error("OpenCV가 설치되지 않아 CCTV 스트림을 사용할 수 없습니다.")
-        return
-    
+    """CCTV 스트림 모드 실행 (PIL 기반)"""
     st.info("🔄 CCTV 스트림에 연결 중...")
     
     try:
-        # CCTV 스트림 연결 시도
-        cap = cv2.VideoCapture(CCTV_STREAM_URL)
+        # CCTV 스트림에서 이미지 가져오기 시도
+        response = requests.get(CCTV_STREAM_URL, timeout=5)
         
-        if not cap.isOpened():
+        if response.status_code != 200:
             st.error("CCTV 스트림에 연결할 수 없습니다. 데모 모드로 전환합니다.")
             run_demo_mode(placeholders, config)
             return
         
         st.success("✅ CCTV 스트림에 연결되었습니다!")
         
-        # 실시간 스트리밍
+        # 실시간 스트리밍 시뮬레이션
         video_placeholder = placeholders['video']
         
         # 위험도 계산을 위한 변수
@@ -258,41 +229,44 @@ def run_cctv_stream_mode(placeholders, config):
         frame_count = 0
         
         while st.session_state.monitoring_active:
-            ret, frame = cap.read()
-            
-            if not ret:
-                st.warning("CCTV 스트림에서 프레임을 읽을 수 없습니다. 재연결 시도 중...")
+            try:
+                # CCTV 스트림에서 이미지 가져오기
+                response = requests.get(CCTV_STREAM_URL, timeout=5)
+                
+                if response.status_code == 200:
+                    # 이미지 데이터를 PIL Image로 변환
+                    image = Image.open(io.BytesIO(response.content))
+                    image = image.resize((640, 480))
+                    
+                    # 위험도 계산 (실제 구현에서는 AI 모델 사용)
+                    risk_score = calculate_simple_risk_score_pil(image)
+                    
+                    # 위험도 시각화
+                    frame_with_risk = visualize_risk_on_frame_pil(image, risk_score)
+                    
+                    # Streamlit에 표시
+                    video_placeholder.image(frame_with_risk, use_column_width=True)
+                else:
+                    # 연결 실패 시 데모 프레임 생성
+                    risk_score = calculate_simple_risk_score_pil(None)
+                    demo_frame = create_demo_frame_pil(risk_score)
+                    video_placeholder.image(demo_frame, use_column_width=True)
+                
+                # 알림 업데이트
+                update_alerts(placeholders, risk_score)
+                
+                # 차트 업데이트 (프레임마다 업데이트하지 않고 주기적으로)
+                frame_count += 1
+                if frame_count % 30 == 0:  # 30프레임마다 차트 업데이트
+                    update_charts(placeholders, risk_score)
+                
+                # 잠시 대기 (프레임 레이트 조절)
+                time.sleep(0.1)
+                
+            except Exception as e:
+                st.warning(f"CCTV 스트림에서 프레임을 읽을 수 없습니다: {e}")
                 time.sleep(2)
                 continue
-            
-            # 프레임 처리
-            frame = cv2.resize(frame, (640, 480))
-            
-            # 위험도 계산 (실제 구현에서는 AI 모델 사용)
-            risk_score = calculate_simple_risk_score(frame)
-            
-            # 위험도 시각화
-            frame_with_risk = visualize_risk_on_frame(frame, risk_score)
-            
-            # BGR을 RGB로 변환
-            frame_rgb = cv2.cvtColor(frame_with_risk, cv2.COLOR_BGR2RGB)
-            
-            # Streamlit에 표시
-            video_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
-            
-            # 알림 업데이트
-            update_alerts(placeholders, risk_score)
-            
-            # 차트 업데이트 (프레임마다 업데이트하지 않고 주기적으로)
-            frame_count += 1
-            if frame_count % 30 == 0:  # 30프레임마다 차트 업데이트
-                update_charts(placeholders, risk_score)
-            
-            # 잠시 대기 (프레임 레이트 조절)
-            time.sleep(0.1)
-        
-        # 스트림 해제
-        cap.release()
         
     except Exception as e:
         st.error(f"CCTV 스트림 연결 중 오류가 발생했습니다: {e}")
@@ -300,100 +274,54 @@ def run_cctv_stream_mode(placeholders, config):
         run_demo_mode(placeholders, config)
 
 def run_webcam_mode(placeholders, config):
-    """웹캠 모드 실행"""
-    if not OPENCV_AVAILABLE:
-        st.error("OpenCV가 설치되지 않아 웹캠을 사용할 수 없습니다.")
-        return
-    
-    # 웹캠 연결
-    cap = cv2.VideoCapture(0)
-    
-    if not cap.isOpened():
-        st.error("웹캠을 열 수 없습니다. 데모 모드로 전환합니다.")
-        run_demo_mode(placeholders, config)
-        return
-    
-    # 웹캠 설정
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    
-    # 실시간 스트리밍
-    video_placeholder = placeholders['video']
-    
-    # 위험도 계산을 위한 변수
-    risk_score = 0.0
-    
-    while st.session_state.monitoring_active:
-        ret, frame = cap.read()
-        
-        if not ret:
-            st.error("프레임을 읽을 수 없습니다.")
-            break
-        
-        # 프레임 처리
-        frame = cv2.resize(frame, (640, 480))
-        
-        # 위험도 계산 (실제 구현에서는 AI 모델 사용)
-        risk_score = calculate_simple_risk_score(frame)
-        
-        # 위험도 시각화
-        frame_with_risk = visualize_risk_on_frame(frame, risk_score)
-        
-        # BGR을 RGB로 변환
-        frame_rgb = cv2.cvtColor(frame_with_risk, cv2.COLOR_BGR2RGB)
-        
-        # Streamlit에 표시
-        video_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
-        
-        # 알림 업데이트
-        update_alerts(placeholders, risk_score)
-        
-        # 차트 업데이트
-        update_charts(placeholders, risk_score)
-        
-        # 잠시 대기 (프레임 레이트 조절)
-        time.sleep(0.1)
-    
-    # 웹캠 해제
-    cap.release()
+    """웹캠 모드 실행 (PIL 기반)"""
+    st.error("웹캠은 Streamlit Cloud 환경에서 사용할 수 없습니다. 데모 모드로 전환합니다.")
+    run_demo_mode(placeholders, config)
 
-def calculate_simple_risk_score(frame):
-    """간단한 위험도 계산 (실제로는 AI 모델 사용)"""
+def calculate_simple_risk_score_pil(image):
+    """간단한 위험도 계산 (PIL 기반)"""
     import random
-    # 실제 구현에서는 프레임 분석을 통한 위험도 계산
+    # 실제 구현에서는 이미지 분석을 통한 위험도 계산
     # 여기서는 데모용으로 랜덤 값 사용
     return random.uniform(0.0, 1.0)
 
-def visualize_risk_on_frame(frame, risk_score):
-    """프레임에 위험도 정보 시각화"""
+def visualize_risk_on_frame_pil(image, risk_score):
+    """PIL 이미지에 위험도 정보 시각화"""
+    if image is None:
+        return create_demo_frame_pil(risk_score)
+    
+    # 이미지 복사
+    img = image.copy()
+    draw = ImageDraw.Draw(img)
+    
+    # 위험도에 따른 색상 설정
     if risk_score < 0.3:
         color = (0, 255, 0)  # 녹색
         level = "안전"
     elif risk_score < 0.6:
-        color = (0, 255, 255)  # 노란색
+        color = (255, 255, 0)  # 노란색
         level = "주의"
     elif risk_score < 0.8:
-        color = (0, 165, 255)  # 주황색
+        color = (255, 165, 0)  # 주황색
         level = "위험"
     else:
-        color = (0, 0, 255)  # 빨간색
+        color = (255, 0, 0)  # 빨간색
         level = "매우 위험"
     
     # 위험도 정보 표시
-    cv2.putText(frame, f"위험도: {level} ({risk_score:.2f})", 
-               (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+    text = f"위험도: {level} ({risk_score:.2f})"
+    draw.text((10, 10), text, fill=color)
     
     # CCTV 스트림 정보 표시
-    cv2.putText(frame, "실시간 CCTV 스트림", 
-               (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    draw.text((10, 40), "실시간 CCTV 스트림", fill=(255, 255, 255))
     
     # 긴급 경고 프레임 추가
     if risk_score > 0.8:
-        cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 255), 5)
-        cv2.putText(frame, "긴급 경고!", (10, 90), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
+        # 빨간색 테두리 그리기
+        draw.rectangle([(0, 0), (img.width, img.height)], outline=(255, 0, 0), width=5)
+        draw.text((10, 70), "긴급 경고!", fill=(255, 0, 0))
     
-    return frame
+    return img
 
 def update_alerts(placeholders, risk_score):
     """알림 업데이트"""
@@ -493,15 +421,9 @@ def run_demo_mode(placeholders, config):
     else:
         placeholders['alert'].success("✅ 안전 상황")
     
-    # 데모 비디오 프레임 생성
-    if OPENCV_AVAILABLE:
-        # OpenCV를 사용한 데모 프레임
-        demo_frame = create_demo_frame_opencv(current_risk)
-        placeholders['video'].image(demo_frame, channels="RGB", use_column_width=True)
-    else:
-        # PIL을 사용한 데모 프레임
-        demo_frame = create_demo_frame_pil(current_risk)
-        placeholders['video'].image(demo_frame, use_column_width=True)
+    # 데모 비디오 프레임 생성 (PIL 기반)
+    demo_frame = create_demo_frame_pil(current_risk)
+    placeholders['video'].image(demo_frame, use_column_width=True)
     
     # 샘플 이벤트 로그
     events = [
@@ -531,60 +453,7 @@ def run_demo_mode(placeholders, config):
         use_container_width=True
     )
 
-def create_demo_frame_opencv(risk_score):
-    """OpenCV를 사용한 데모 프레임 생성"""
-    # 빈 프레임 생성
-    frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    
-    # 배경 그라데이션
-    for i in range(480):
-        color = int(255 * (1 - i/480))
-        frame[i, :] = [color, color, color]
-    
-    # 위험도 정보 표시
-    if risk_score < 0.3:
-        color = (0, 255, 0)  # 녹색
-        level = "안전"
-    elif risk_score < 0.6:
-        color = (0, 255, 255)  # 노란색
-        level = "주의"
-    elif risk_score < 0.8:
-        color = (0, 165, 255)  # 주황색
-        level = "위험"
-    else:
-        color = (0, 0, 255)  # 빨간색
-        level = "매우 위험"
-    
-    # 중앙에 텍스트 표시
-    text = f"위험도: {level} ({risk_score:.2f})"
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 1.5
-    thickness = 3
-    
-    # 텍스트 크기 계산
-    (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
-    
-    # 텍스트 위치 계산 (중앙)
-    text_x = (640 - text_width) // 2
-    text_y = (480 + text_height) // 2
-    
-    # 텍스트 배경
-    cv2.rectangle(frame, 
-                 (text_x - 10, text_y - text_height - 10),
-                 (text_x + text_width + 10, text_y + 10),
-                 (0, 0, 0), -1)
-    
-    # 텍스트 표시
-    cv2.putText(frame, text, (text_x, text_y), font, font_scale, color, thickness)
-    
-    # 데모 정보 표시
-    demo_text = "데모 모드 - 실제 카메라 연결 시 실시간 영상 표시"
-    cv2.putText(frame, demo_text, (10, 450), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    
-    # BGR을 RGB로 변환
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
-    return frame_rgb
+
 
 def create_demo_frame_pil(risk_score):
     """PIL을 사용한 데모 프레임 생성"""
@@ -619,4 +488,4 @@ def create_demo_frame_pil(risk_score):
     return img
 
 if __name__ == "__main__":
-    main()
+    main() 
