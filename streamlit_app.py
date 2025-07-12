@@ -36,7 +36,7 @@ CCTV_STREAM_URL = "https://www.utic.go.kr/jsp/map/cctvStream.jsp?cctvid=E970102&
 # 대안 CCTV URL들 (테스트용)
 ALTERNATIVE_CCTV_URLS = [
     "https://www.utic.go.kr/jsp/map/cctvStream.jsp?cctvid=E970104&cctvname=%25EB%25B0%2598%25ED%258F%25AC%25EB%258C%2580%25EA%25B5%2590%25EB%25B6%2581%25EB%258B%25A81&kind=EC&cctvip=undefined&cctvch=53&id=428&cctvpasswd=undefined&cctvport=undefined&minX=126.94439014863138&minY=37.48157205124353&maxX=127.16458223998221&maxY=37.56413189592257",
-    "https://www.utic.go.kr/jsp/map/cctvStream.jsp?cctvid=E970156&cctvname=%25EC%259D%25B4%25EC%25B4%258C%25EC%2599%25B8%25EC%259D%25B8%25EC%2595%2584%25ED%258C%258C%25ED%258A%25B8%2520%25EC%2595%259E&kind=EC&cctvip=undefined&cctvch=53&id=426&cctvpasswd=undefined&cctvport=undefined&minX=126.8714336987358&minY=37.48406812510299&maxX=127.09156227624412&maxY=37.56675783100856"
+    "https://www.utic.go.kr/jsp/map/cctvStream.jsp?cctvid=E970103&cctvname=%25EB%25B0%2598%25ED%258F%25AC%25EB%258C%2580%25EA%25B5%2590%25EB%25B6%2581%25EB%258B%25A82&kind=EC&cctvip=undefined&cctvch=53&id=429&cctvpasswd=undefined&cctvport=undefined&minX=126.94439014863138&minY=37.48157205124353&maxX=127.16458223998221&maxY=37.56413189592257"
 ]
 
 def main():
@@ -65,6 +65,7 @@ def setup_sidebar():
     # 카메라 선택
     camera_options = {
         "실제 CCTV 스트림": "cctv_stream",
+        "영상 파일 업로드": "video_upload",
         "웹캠 연결": "webcam",
         "데모 모드": "demo",
         "카메라 1": 0,
